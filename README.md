@@ -18,12 +18,17 @@ address from their device's GPS coordinates.
    state, postal code, country, etc.) in the UI.
 6. **Prints the full, highlighted address details to Logcat** (tag
    `AddressFinder`) every time a lookup succeeds.
+7. **Saves every resolved address to a local Room database** (id + timestamp
+   + every address field) as soon as it's fetched.
+8. **A second screen lists every saved address** as a Tinder-style card
+   stack — swipe a card left or right to bring the next one to the front.
 
 ## Tech stack
 
 - **Kotlin** + **Jetpack Compose** (Material 3), single-activity app
-- **MVVM**: `AddressViewModel` (`AndroidViewModel`) exposes a `StateFlow<AddressUiState>`
-  that drives the UI
+- **MVVM**: `AddressViewModel` / `SavedAddressesViewModel` (`AndroidViewModel`)
+  expose `StateFlow`s that drive the UI
+- **Navigation Compose**: a two-destination `NavHost` (`home` ↔ `saved`)
 - **Google Play Services Location**: `FusedLocationProviderClient` for the
   location fix, `SettingsClient` for the "please enable GPS" resolution dialog
 - **Geocoder**: reverse geocoding, using the modern async
@@ -31,21 +36,29 @@ address from their device's GPS coordinates.
   (API 33) and the classic synchronous call on older versions
 - **Kotlin Coroutines** (`kotlinx-coroutines-play-services`) to bridge the
   Play Services `Task` callbacks into suspend functions
+- **Room** (+ KSP): persists every resolved address to a local SQLite table,
+  exposed to the UI as a `Flow<List<AddressEntity>>`
 
 ## Project structure
 
 ```
 app/src/main/java/com/example/addressfinder/
-├── MainActivity.kt              # Hosts the Compose UI
-├── AddressViewModel.kt          # Orchestrates permission → GPS check → fetch → geocode
-├── AddressUiState.kt            # Sealed UI state (permission, loading, success, error, ...)
-├── AddressLogger.kt             # Formats and prints the resolved address to Logcat
+├── MainActivity.kt                # Hosts the NavHost (home ↔ saved)
+├── AddressViewModel.kt            # Orchestrates permission → GPS check → fetch → geocode → save
+├── SavedAddressesViewModel.kt     # Streams all saved addresses from Room
+├── AddressUiState.kt              # Sealed UI state (permission, loading, success, error, ...)
+├── AddressLogger.kt               # Formats and prints the resolved address to Logcat
+├── data/
+│   ├── AddressEntity.kt           # @Entity row: id, timestamp + every address field
+│   ├── AddressDao.kt              # @Dao: insert() + getAllOrderedByTimestampDesc()
+│   └── AppDatabase.kt             # @Database singleton (Room.databaseBuilder)
 ├── location/
-│   ├── LocationRepository.kt    # FusedLocationProviderClient + SettingsClient + Geocoder wrapper
-│   └── AddressDetails.kt        # Flattened data model of an android.location.Address
+│   ├── LocationRepository.kt      # FusedLocationProviderClient + SettingsClient + Geocoder wrapper
+│   └── AddressDetails.kt          # Flattened data model of an android.location.Address
 └── ui/
-    ├── AddressScreen.kt         # Compose screen: permission/GPS/loading/result states
-    └── theme/                   # Material 3 theme (Color.kt, Type.kt, Theme.kt)
+    ├── AddressScreen.kt           # Compose screen: permission/GPS/loading/result states
+    ├── SavedAddressesScreen.kt    # Swipeable card-stack screen listing saved addresses
+    └── theme/                     # Material 3 theme (Color.kt, Type.kt, Theme.kt)
 ```
 
 ## How the flow works
@@ -68,10 +81,15 @@ Check device location settings ◀────┘
 
 Fetch current location ──▶ Reverse geocode (lat, lon) ──▶ Address
                                                               │
-                                          ┌───────────────────┴───────────────────┐
-                                          ▼                                       ▼
-                                 Display on screen                     Log full details to Logcat
+                                  ┌───────────────────────────┼───────────────────────────┐
+                                  ▼                            ▼                            ▼
+                         Display on screen           Log full details to Logcat   Insert row into Room DB
 ```
+
+Tapping the history icon in the top bar navigates to the **Saved Addresses**
+screen, which reads the same Room table as a `Flow` (newest first) and
+renders it as a swipeable card stack — each card shows one saved lookup;
+swiping it away (either direction) reveals the next one underneath.
 
 ## Running the app
 
@@ -110,6 +128,8 @@ Fetch current location ──▶ Reverse geocode (lat, lon) ──▶ Address
    ```
 
    Tap **Refresh** on the result screen to run the whole flow again.
+7. Tap the **history icon** (top-right) to open **Saved Addresses** and
+   browse every lookup made so far as a swipeable card stack.
 
 ## Permissions used
 

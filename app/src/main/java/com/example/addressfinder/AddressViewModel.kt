@@ -4,9 +4,12 @@ import android.app.Application
 import androidx.activity.result.IntentSenderRequest
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.addressfinder.data.AppDatabase
+import com.example.addressfinder.data.toEntity
 import com.example.addressfinder.location.AddressDetails
 import com.example.addressfinder.location.LocationRepository
 import com.google.android.gms.common.api.ResolvableApiException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +19,7 @@ import kotlinx.coroutines.launch
 class AddressViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = LocationRepository(application)
+    private val addressDao = AppDatabase.getInstance(application).addressDao()
 
     private val _uiState = MutableStateFlow<AddressUiState>(AddressUiState.PermissionRequired)
     val uiState: StateFlow<AddressUiState> = _uiState.asStateFlow()
@@ -95,10 +99,18 @@ class AddressViewModel(application: Application) : AndroidViewModel(application)
 
                 AddressLogger.logAddressDetails(details)
                 _uiState.value = AddressUiState.Success(details)
+                saveToDatabase(details)
             } catch (t: Throwable) {
                 AddressLogger.logError("Failed to resolve address from location", t)
                 _uiState.value = AddressUiState.Error(t.message ?: "Unable to determine your address.")
             }
+        }
+    }
+
+    private fun saveToDatabase(details: AddressDetails) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val rowId = addressDao.insert(details.toEntity())
+            AddressLogger.logInfo("Saved address to database (row id=$rowId)")
         }
     }
 }
