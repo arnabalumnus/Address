@@ -36,9 +36,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -132,11 +134,23 @@ private val SwipeCommitThreshold = 120.dp
 
 @Composable
 private fun SwipeCardStack(items: List<AddressEntity>, onDelete: (AddressEntity) -> Unit) {
-    var currentIndex by remember(items) { mutableIntStateOf(0) }
+    // Local browsing order, independent of Room's Flow re-emissions so a delete doesn't
+    // reset the position: the deleted card is spliced out in place, and the item behind it
+    // slides into the same slot instead of the whole stack jumping back to the start.
+    var queue by remember { mutableStateOf(items) }
+    var currentIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(items) {
+        val knownIds = queue.mapTo(mutableSetOf()) { it.id }
+        val newlyAdded = items.filter { it.id !in knownIds }
+        if (newlyAdded.isNotEmpty()) {
+            queue = queue + newlyAdded
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Text(
-            text = if (currentIndex < items.size) "${currentIndex + 1} / ${items.size}" else "${items.size} / ${items.size}",
+            text = if (currentIndex < queue.size) "${currentIndex + 1} / ${queue.size}" else "${queue.size} / ${queue.size}",
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier
                 .fillMaxWidth()
@@ -152,12 +166,15 @@ private fun SwipeCardStack(items: List<AddressEntity>, onDelete: (AddressEntity)
                 .padding(24.dp),
             contentAlignment = Alignment.Center
         ) {
-            if (currentIndex >= items.size) {
-                AllCaughtUp(onRestart = { currentIndex = 0 })
+            if (currentIndex >= queue.size) {
+                AllCaughtUp(onRestart = {
+                    queue = items
+                    currentIndex = 0
+                })
             } else {
-                val visibleCount = minOf(3, items.size - currentIndex)
+                val visibleCount = minOf(3, queue.size - currentIndex)
                 for (depth in visibleCount - 1 downTo 0) {
-                    val item = items[currentIndex + depth]
+                    val item = queue[currentIndex + depth]
                     if (depth == 0) {
                         SwipeableCard(
                             key = item.id,
@@ -165,7 +182,7 @@ private fun SwipeCardStack(items: List<AddressEntity>, onDelete: (AddressEntity)
                             onNext = { currentIndex++ },
                             onDelete = {
                                 onDelete(item)
-                                currentIndex++
+                                queue = queue.toMutableList().also { it.removeAt(currentIndex) }
                             }
                         )
                     } else {
@@ -175,7 +192,7 @@ private fun SwipeCardStack(items: List<AddressEntity>, onDelete: (AddressEntity)
             }
         }
 
-        if (currentIndex < items.size) {
+        if (currentIndex < queue.size) {
             SwipeHint()
         }
     }
