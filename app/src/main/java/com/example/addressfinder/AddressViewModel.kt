@@ -99,7 +99,6 @@ class AddressViewModel(application: Application) : AndroidViewModel(application)
 
                 AddressLogger.logAddressDetails(details)
                 _uiState.value = AddressUiState.Success(details)
-                saveToDatabase(details)
             } catch (t: Throwable) {
                 AddressLogger.logError("Failed to resolve address from location", t)
                 _uiState.value = AddressUiState.Error(t.message ?: "Unable to determine your address.")
@@ -107,7 +106,8 @@ class AddressViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private fun saveToDatabase(details: AddressDetails) {
+    /** Called from the UI's Save button; the user may have hand-edited [details] first. */
+    fun saveAddress(details: AddressDetails) {
         viewModelScope.launch(Dispatchers.IO) {
             val rowId = addressDao.insert(details.toEntity())
             AddressLogger.logInfo("Saved address to database (row id=$rowId)")

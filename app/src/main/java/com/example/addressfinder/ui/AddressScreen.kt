@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -14,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocationOff
@@ -24,10 +24,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -35,6 +36,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -125,7 +129,8 @@ fun AddressScreen(
 
                 is AddressUiState.Success -> AddressResultContent(
                     details = state.details,
-                    onRefresh = { viewModel.retry() }
+                    onRefresh = { viewModel.retry() },
+                    onSave = { viewModel.saveAddress(it) }
                 )
 
                 is AddressUiState.Error -> StatusContent(
@@ -189,22 +194,67 @@ private fun StatusContent(
     }
 }
 
+/**
+ * String-backed mirror of [AddressDetails] so every field can sit in an
+ * editable [OutlinedTextField] and be typed into freely before saving.
+ */
+private data class EditableAddressFields(
+    val latitude: String,
+    val longitude: String,
+    val accuracyMeters: String,
+    val fullAddressLine: String,
+    val featureName: String,
+    val thoroughfare: String,
+    val subLocality: String,
+    val locality: String,
+    val subAdminArea: String,
+    val adminArea: String,
+    val postalCode: String,
+    val countryName: String,
+    val countryCode: String
+)
+
+private fun AddressDetails.toEditableFields() = EditableAddressFields(
+    latitude = latitude.toString(),
+    longitude = longitude.toString(),
+    accuracyMeters = accuracyMeters?.toString().orEmpty(),
+    fullAddressLine = fullAddressLine.orEmpty(),
+    featureName = featureName.orEmpty(),
+    thoroughfare = thoroughfare.orEmpty(),
+    subLocality = subLocality.orEmpty(),
+    locality = locality.orEmpty(),
+    subAdminArea = subAdminArea.orEmpty(),
+    adminArea = adminArea.orEmpty(),
+    postalCode = postalCode.orEmpty(),
+    countryName = countryName.orEmpty(),
+    countryCode = countryCode.orEmpty()
+)
+
+/** [original] supplies the raw GPS fix values ([AddressDetails.subThoroughfare]) that aren't user-editable. */
+private fun EditableAddressFields.toAddressDetails(original: AddressDetails) = AddressDetails(
+    latitude = latitude.toDoubleOrNull() ?: original.latitude,
+    longitude = longitude.toDoubleOrNull() ?: original.longitude,
+    accuracyMeters = accuracyMeters.toFloatOrNull(),
+    fullAddressLine = fullAddressLine.ifBlank { null },
+    featureName = featureName.ifBlank { null },
+    subThoroughfare = original.subThoroughfare,
+    thoroughfare = thoroughfare.ifBlank { null },
+    subLocality = subLocality.ifBlank { null },
+    locality = locality.ifBlank { null },
+    subAdminArea = subAdminArea.ifBlank { null },
+    adminArea = adminArea.ifBlank { null },
+    postalCode = postalCode.ifBlank { null },
+    countryName = countryName.ifBlank { null },
+    countryCode = countryCode.ifBlank { null }
+)
+
 @Composable
-private fun AddressResultContent(details: AddressDetails, onRefresh: () -> Unit) {
-    val rows = listOfNotNull(
-        "Latitude" to details.latitude.toString(),
-        "Longitude" to details.longitude.toString(),
-        details.accuracyMeters?.let { "Accuracy" to "${it} m" },
-        details.fullAddressLine?.let { "Full address" to it },
-        details.featureName?.let { "Feature" to it },
-        details.thoroughfare?.let { "Street" to it },
-        details.subLocality?.let { "Sub-locality" to it },
-        details.locality?.let { "City" to it },
-        details.subAdminArea?.let { "District" to it },
-        details.adminArea?.let { "State/Region" to it },
-        details.postalCode?.let { "Postal code" to it },
-        details.countryName?.let { "Country" to "$it (${details.countryCode ?: "-"})" }
-    )
+private fun AddressResultContent(
+    details: AddressDetails,
+    onRefresh: () -> Unit,
+    onSave: (AddressDetails) -> Unit
+) {
+    var fields by remember(details) { mutableStateOf(details.toEditableFields()) }
 
     Column(modifier = Modifier
         .fillMaxSize()
@@ -217,32 +267,92 @@ private fun AddressResultContent(details: AddressDetails, onRefresh: () -> Unit)
         )
         Spacer(Modifier.height(8.dp))
         Text("Current Address", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Edit any field below if it isn't quite right, then tap Save.",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.height(12.dp))
 
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
-            LazyColumn(modifier = Modifier.padding(vertical = 4.dp)) {
-                items(rows) { (label, value) ->
-                    Column(modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 10.dp)) {
-                        Text(
-                            label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(value, style = MaterialTheme.typography.bodyLarge)
-                    }
-                    HorizontalDivider()
+            LazyColumn(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
+                item {
+                    AddressField("Latitude", fields.latitude) { fields = fields.copy(latitude = it) }
+                }
+                item {
+                    AddressField("Longitude", fields.longitude) { fields = fields.copy(longitude = it) }
+                }
+                item {
+                    AddressField("Accuracy (m)", fields.accuracyMeters) { fields = fields.copy(accuracyMeters = it) }
+                }
+                item {
+                    AddressField("Full address", fields.fullAddressLine) { fields = fields.copy(fullAddressLine = it) }
+                }
+                item {
+                    AddressField("Feature", fields.featureName) { fields = fields.copy(featureName = it) }
+                }
+                item {
+                    AddressField("Street", fields.thoroughfare) { fields = fields.copy(thoroughfare = it) }
+                }
+                item {
+                    AddressField("Sub-locality", fields.subLocality) { fields = fields.copy(subLocality = it) }
+                }
+                item {
+                    AddressField("City", fields.locality) { fields = fields.copy(locality = it) }
+                }
+                item {
+                    AddressField("District", fields.subAdminArea) { fields = fields.copy(subAdminArea = it) }
+                }
+                item {
+                    AddressField("State/Region", fields.adminArea) { fields = fields.copy(adminArea = it) }
+                }
+                item {
+                    AddressField("Postal code", fields.postalCode) { fields = fields.copy(postalCode = it) }
+                }
+                item {
+                    AddressField("Country", fields.countryName) { fields = fields.copy(countryName = it) }
+                }
+                item {
+                    AddressField("Country code", fields.countryCode) { fields = fields.copy(countryCode = it) }
                 }
             }
         }
 
         Spacer(Modifier.height(16.dp))
-        Button(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
-            Text("Refresh")
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedButton(onClick = onRefresh, modifier = Modifier.weight(1f)) {
+                Text("Refresh")
+            }
+            Button(
+                onClick = { onSave(fields.toAddressDetails(original = details)) },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Save")
+            }
         }
     }
+}
+
+@Composable
+private fun AddressField(label: String, value: String, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label) },
+        singleLine = true,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp)
+    )
 }
