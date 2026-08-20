@@ -38,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.addressfinder.AddressUiState
 import com.example.addressfinder.AddressViewModel
 import com.example.addressfinder.location.AddressDetails
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -130,7 +133,8 @@ fun AddressScreen(
                 is AddressUiState.Success -> AddressResultContent(
                     details = state.details,
                     onRefresh = { viewModel.retry() },
-                    onSave = { viewModel.saveAddress(it) }
+                    onSave = { viewModel.saveAddress(it) },
+                    onSaved = onViewSaved
                 )
 
                 is AddressUiState.Error -> StatusContent(
@@ -248,13 +252,34 @@ private fun EditableAddressFields.toAddressDetails(original: AddressDetails) = A
     countryCode = countryCode.ifBlank { null }
 )
 
+private val BlankAddressFields = EditableAddressFields(
+    latitude = "",
+    longitude = "",
+    accuracyMeters = "",
+    fullAddressLine = "",
+    featureName = "",
+    thoroughfare = "",
+    subLocality = "",
+    locality = "",
+    subAdminArea = "",
+    adminArea = "",
+    postalCode = "",
+    countryName = "",
+    countryCode = ""
+)
+
+/** Delay between clearing the form on Save and navigating to the saved-addresses screen. */
+private const val PostSaveNavigationDelayMillis = 300L
+
 @Composable
 private fun AddressResultContent(
     details: AddressDetails,
     onRefresh: () -> Unit,
-    onSave: (AddressDetails) -> Unit
+    onSave: (AddressDetails) -> Unit,
+    onSaved: () -> Unit
 ) {
     var fields by remember(details) { mutableStateOf(details.toEditableFields()) }
+    val scope = rememberCoroutineScope()
 
     Column(modifier = Modifier
         .fillMaxSize()
@@ -335,7 +360,14 @@ private fun AddressResultContent(
                 Text("Refresh")
             }
             Button(
-                onClick = { onSave(fields.toAddressDetails(original = details)) },
+                onClick = {
+                    onSave(fields.toAddressDetails(original = details))
+                    fields = BlankAddressFields
+                    scope.launch {
+                        delay(PostSaveNavigationDelayMillis)
+                        onSaved()
+                    }
+                },
                 modifier = Modifier.weight(1f)
             ) {
                 Text("Save")

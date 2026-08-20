@@ -88,7 +88,10 @@ fun SavedAddressesScreen(
             if (savedAddresses.isEmpty()) {
                 EmptySavedAddresses()
             } else {
-                SwipeCardStack(items = savedAddresses)
+                SwipeCardStack(
+                    items = savedAddresses,
+                    onDelete = viewModel::deleteAddress
+                )
             }
         }
     }
@@ -128,7 +131,7 @@ private fun EmptySavedAddresses() {
 private val SwipeCommitThreshold = 120.dp
 
 @Composable
-private fun SwipeCardStack(items: List<AddressEntity>) {
+private fun SwipeCardStack(items: List<AddressEntity>, onDelete: (AddressEntity) -> Unit) {
     var currentIndex by remember(items) { mutableIntStateOf(0) }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -159,7 +162,11 @@ private fun SwipeCardStack(items: List<AddressEntity>) {
                         SwipeableCard(
                             key = item.id,
                             item = item,
-                            onSwiped = { currentIndex++ }
+                            onNext = { currentIndex++ },
+                            onDelete = {
+                                onDelete(item)
+                                currentIndex++
+                            }
                         )
                     } else {
                         StackedCardBackground(depth = depth)
@@ -201,7 +208,7 @@ private fun SwipeHint() {
         horizontalArrangement = Arrangement.Center
     ) {
         Text(
-            "Swipe the card left or right to browse",
+            "Swipe right for next • Swipe left to delete",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -229,7 +236,7 @@ private fun StackedCardBackground(depth: Int) {
 }
 
 @Composable
-private fun SwipeableCard(key: Long, item: AddressEntity, onSwiped: () -> Unit) {
+private fun SwipeableCard(key: Long, item: AddressEntity, onNext: () -> Unit, onDelete: () -> Unit) {
     val offsetX = remember(key) { Animatable(0f) }
     val offsetY = remember(key) { Animatable(0f) }
     val scope = rememberCoroutineScope()
@@ -262,12 +269,12 @@ private fun SwipeableCard(key: Long, item: AddressEntity, onSwiped: () -> Unit) 
                         when {
                             current > thresholdPx -> scope.launch {
                                 offsetX.animateTo(flingDistancePx, tween(250))
-                                onSwiped()
+                                onNext()
                             }
 
                             current < -thresholdPx -> scope.launch {
                                 offsetX.animateTo(-flingDistancePx, tween(250))
-                                onSwiped()
+                                onDelete()
                             }
 
                             else -> {
@@ -287,12 +294,14 @@ private fun SwipeableCard(key: Long, item: AddressEntity, onSwiped: () -> Unit) 
             SwipeBadge(
                 text = "NEXT ▶",
                 color = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
                 alignment = Alignment.TopEnd,
                 alpha = progress.coerceIn(0f, 1f)
             )
             SwipeBadge(
-                text = "◀ NEXT",
-                color = MaterialTheme.colorScheme.tertiary,
+                text = "◀ DELETE",
+                color = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
                 alignment = Alignment.TopStart,
                 alpha = (-progress).coerceIn(0f, 1f)
             )
@@ -301,7 +310,7 @@ private fun SwipeableCard(key: Long, item: AddressEntity, onSwiped: () -> Unit) 
 }
 
 @Composable
-private fun BoxScope.SwipeBadge(text: String, color: Color, alignment: Alignment, alpha: Float) {
+private fun BoxScope.SwipeBadge(text: String, color: Color, contentColor: Color, alignment: Alignment, alpha: Float) {
     if (alpha <= 0f) return
     Box(
         modifier = Modifier
@@ -313,7 +322,7 @@ private fun BoxScope.SwipeBadge(text: String, color: Color, alignment: Alignment
             Text(
                 text,
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                color = MaterialTheme.colorScheme.onPrimary,
+                color = contentColor,
                 fontWeight = FontWeight.Bold,
                 style = MaterialTheme.typography.labelSmall
             )
